@@ -14,7 +14,7 @@ func InitDB() {
 	host := "localhost"
 	port := 5432
 	user := "postgres"
-	password := "12345"
+	password := "testing123"
 	dbname := "bpjsdb"
 
 	psqlInfo := fmt.Sprintf(
