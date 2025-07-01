@@ -6,6 +6,10 @@ import (
 
 type TweetInteractor struct{}
 
+func (ti *TweetInteractor) GetSentimentsPerSubtopic(subtopic string) (map[string]int, error) {
+	return repository.CountSentimentsPerSubtopic(subtopic)
+}
+
 func (ti *TweetInteractor) GetSentimentDistribution() (map[string]int, error) {
 	return repository.CountSentiments()
 }

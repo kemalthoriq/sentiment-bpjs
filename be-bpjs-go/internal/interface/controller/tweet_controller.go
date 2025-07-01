@@ -17,6 +17,21 @@ func NewTweetController() *TweetController {
 	}
 }
 
+func (tc *TweetController) GetSentimentsPerSubtopic(w http.ResponseWriter, r *http.Request) {
+	subtopic := r.URL.Query().Get("subtopic")
+	if subtopic == "" {
+		http.Error(w, "Subtopic is required", http.StatusBadRequest)
+		return
+	}
+	data, err := tc.Interactor.GetSentimentsPerSubtopic(subtopic)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
 func (tc *TweetController) GetSentimentDistribution(w http.ResponseWriter, r *http.Request) {
 	data, err := tc.Interactor.GetSentimentDistribution()
 	if err != nil {

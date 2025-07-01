@@ -41,40 +41,18 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
-type ChartData = { name: string; value: number }
+type ChartData = { name: string; value: number; sentiments?: { positive: number; negative: number; neutral: number } }
 type ProvinceData = { location: string; count: number }
 
-// Mock data to use when API is unavailable
-const MOCK_SENTIMENT_DATA: ChartData[] = [
-  { name: "positive", value: 450 },
-  { name: "negative", value: 300 },
-  { name: "neutral", value: 250 },
+// Define at top
+const EMPTY_SENTIMENT_DATA: ChartData[] = [
+  { name: "positive", value: 0 },
+  { name: "negative", value: 0 },
+  { name: "neutral", value: 0 },
 ]
 
-const MOCK_SUBTOPIC_DATA: ChartData[] = [
-  { name: "pelayanan", value: 320 },
-  { name: "kecepatan", value: 280 },
-  { name: "keramahan", value: 220 },
-  { name: "kemudahan", value: 180 },
-]
-
-const MOCK_PROVINCE_DATA: ProvinceData[] = [
-  { location: "Jakarta", count: 250 },
-  { location: "Jawa Barat", count: 200 },
-  { location: "Jawa Timur", count: 180 },
-  { location: "Jawa Tengah", count: 150 },
-  { location: "Sumatera Utara", count: 120 },
-  { location: "Bali", count: 100 },
-  { location: "Sulawesi Selatan", count: 90 },
-  { location: "Kalimantan Timur", count: 80 },
-  { location: "Yogyakarta", count: 70 },
-  { location: "Sumatera Selatan", count: 60 },
-  { location: "Banten", count: 50 },
-  { location: "Riau", count: 40 },
-  { location: "Lampung", count: 30 },
-  { location: "Aceh", count: 25 },
-  { location: "Papua", count: 20 },
-]
+const EMPTY_SUBTOPIC_DATA: ChartData[] = []
+const EMPTY_PROVINCE_DATA: ProvinceData[] = []
 
 export default function Dashboard() {
   const [formData, setFormData] = useState({
@@ -125,74 +103,81 @@ export default function Dashboard() {
         let subtopicArray: ChartData[] = []
         let provinceArray: ProvinceData[] = []
 
-        // Check if API URL is available
         const apiUrl = process.env.NEXT_PUBLIC_API_URL
 
         if (!apiUrl) {
-          // If no API URL, use mock data
-          console.log("No API URL provided, using mock data")
-          sentimentArray = MOCK_SENTIMENT_DATA
-          subtopicArray = MOCK_SUBTOPIC_DATA
-          provinceArray = MOCK_PROVINCE_DATA
+          console.warn("No API URL provided, using empty data")
+          sentimentArray = EMPTY_SENTIMENT_DATA
+          subtopicArray = EMPTY_SUBTOPIC_DATA
+          provinceArray = EMPTY_PROVINCE_DATA
         } else {
           try {
-            // Fetch sentiment distribution
+            // Sentiment
             const sentimentEndpoint = bpjsUserFilter
               ? `${apiUrl}/api/sentiment-distribution-bpjs-users`
               : `${apiUrl}/api/sentiment-distribution`
             const resSentiment = await fetch(sentimentEndpoint)
-
-            if (!resSentiment.ok) {
-              throw new Error(`API returned ${resSentiment.status}`)
-            }
-
+            if (!resSentiment.ok) throw new Error(`API returned ${resSentiment.status}`)
             const sentimentJson = await resSentiment.json()
             sentimentArray = Object.keys(sentimentJson).map((key) => ({
               name: key,
               value: sentimentJson[key],
             }))
 
-            // Fetch subtopics
+            // Subtopics
             const resSubtopic = await fetch(`${apiUrl}/api/subtopics`)
-
-            if (!resSubtopic.ok) {
-              throw new Error(`API returned ${resSubtopic.status}`)
-            }
-
+            if (!resSubtopic.ok) throw new Error(`API returned ${resSubtopic.status}`)
             const subtopicJson = await resSubtopic.json()
-            subtopicArray = subtopicJson.map((item: { subtopic: string; count: number }) => ({
-              name: item.subtopic,
-              value: item.count,
-            }))
+            subtopicArray = await Promise.all(
+              subtopicJson.map(async (item: { subtopic: string; count: number }) => {
+                const resSentimentPerSubtopic = await fetch(
+                  `${apiUrl}/api/sentiments-per-subtopic?subtopic=${encodeURIComponent(item.subtopic)}`
+                )
+                console.log(`Fetching sentiments for ${item.subtopic}:`, resSentimentPerSubtopic.status)
+                let sentiments = { positive: 0, negative: 0, neutral: 0 }
+                if (resSentimentPerSubtopic.ok) {
+                  const sentimentData = await resSentimentPerSubtopic.json()
+                  console.log(`Sentiment data for ${item.subtopic}:`, sentimentData)
+                  sentiments = {
+                    positive: sentimentData.positive || 0,
+                    negative: sentimentData.negative || 0,
+                    neutral: sentimentData.neutral || 0,
+                  }
+                } else {
+                  console.warn(`Failed to fetch sentiments for ${item.subtopic}: ${resSentimentPerSubtopic.status}`)
+                  // Temporary fallback with mock data to test UI
+                  sentiments = { positive: 10, negative: 5, neutral: item.count - 15 }
+                }
+                return {
+                  name: item.subtopic,
+                  value: item.count,
+                  sentiments,
+                }
+              })
+            )
 
-            // Fetch tweets per province
+            // Provinces
             const resProvince = await fetch(`${apiUrl}/api/tweets-per-province`)
-
-            if (!resProvince.ok) {
-              throw new Error(`API returned ${resProvince.status}`)
-            }
-
+            if (!resProvince.ok) throw new Error(`API returned ${resProvince.status}`)
             const provinceJson = await resProvince.json()
             provinceArray = provinceJson.map((item: { location: string; count: number }) => ({
               location: item.location,
               count: item.count,
             }))
           } catch (error) {
-            console.error("❌ API request failed:", error)
-            // Fall back to mock data on API error
-            sentimentArray = MOCK_SENTIMENT_DATA
-            subtopicArray = MOCK_SUBTOPIC_DATA
-            provinceArray = MOCK_PROVINCE_DATA
+            console.error("API fetch error:", error)
+            sentimentArray = EMPTY_SENTIMENT_DATA
+            subtopicArray = EMPTY_SUBTOPIC_DATA
+            provinceArray = EMPTY_PROVINCE_DATA
             setApiError(true)
           }
         }
 
-        // Calculate stats
         const totalTweets = sentimentArray.reduce((sum, item) => sum + item.value, 0)
-        const positivePercent =
-          (sentimentArray.find((item) => item.name === "positive")?.value / totalTweets) * 100 || 0
-        const negativePercent =
-          (sentimentArray.find((item) => item.name === "negative")?.value / totalTweets) * 100 || 0
+        const positive = sentimentArray.find((item) => item.name === "positive")?.value ?? 0
+        const negative = sentimentArray.find((item) => item.name === "negative")?.value ?? 0
+        const positivePercent = totalTweets ? (positive / totalTweets) * 100 : 0
+        const negativePercent = totalTweets ? (negative / totalTweets) * 100 : 0
         const activeProvinces = new Set(provinceArray.map((item) => item.location)).size
 
         setSentimentData(sentimentArray)
@@ -205,27 +190,16 @@ export default function Dashboard() {
           activeProvinces,
         })
       } catch (error) {
-        console.error("❌ Failed fetching data:", error)
-        // Set mock data as fallback
-        setSentimentData(MOCK_SENTIMENT_DATA)
-        setSubtopicData(MOCK_SUBTOPIC_DATA)
-        setProvinceData(MOCK_PROVINCE_DATA)
-
-        // Calculate stats from mock data
-        const totalTweets = MOCK_SENTIMENT_DATA.reduce((sum, item) => sum + item.value, 0)
-        const positivePercent =
-          (MOCK_SENTIMENT_DATA.find((item) => item.name === "positive")?.value / totalTweets) * 100 || 0
-        const negativePercent =
-          (MOCK_SENTIMENT_DATA.find((item) => item.name === "negative")?.value / totalTweets) * 100 || 0
-        const activeProvinces = new Set(MOCK_PROVINCE_DATA.map((item) => item.location)).size
-
+        console.error("Unexpected fetch error:", error)
+        setSentimentData(EMPTY_SENTIMENT_DATA)
+        setSubtopicData(EMPTY_SUBTOPIC_DATA)
+        setProvinceData(EMPTY_PROVINCE_DATA)
         setStats({
-          totalTweets,
-          positivePercent: Number(positivePercent.toFixed(1)),
-          negativePercent: Number(negativePercent.toFixed(1)),
-          activeProvinces,
+          totalTweets: 0,
+          positivePercent: 0,
+          negativePercent: 0,
+          activeProvinces: 0,
         })
-
         setApiError(true)
       } finally {
         setLoading(false)
@@ -235,7 +209,7 @@ export default function Dashboard() {
     fetchData()
   }, [bpjsUserFilter])
 
-  // Calculate total for percentage in pie chart
+  // Total chart data
   const sentimentTotal = sentimentData.reduce((sum, item) => sum + item.value, 0)
   const subtopicTotal = subtopicData.reduce((sum, item) => sum + item.value, 0)
 
@@ -262,11 +236,6 @@ export default function Dashboard() {
             Contact
           </Link>
         </nav>
-        {/* <div className="ml-auto">
-          <Badge variant="outline" className="bg-white/20 text-white font-medium border-white/30">
-            {bpjsUserFilter ? "BPJS Users Only" : "All Users"}
-          </Badge>
-        </div> */}
       </header>
 
       {/* Main Content */}
@@ -274,7 +243,7 @@ export default function Dashboard() {
         {/* API Error Alert */}
         {apiError && (
           <div className="container px-4 md:px-6 mx-auto mt-4">
-            <Alert variant="destructive">
+            <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>API Connection Error</AlertTitle>
               <AlertDescription>
@@ -290,12 +259,6 @@ export default function Dashboard() {
           <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxwYXR0ZXJuIGlkPSJwYXR0ZXJuIiB4PSIwIiB5PSIwIiB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHBhdHRlcm5Vbml0cz0idXNlclNwYWNlT25Vc2UiIHBhdHRlcm5UcmFuc2Zvcm09InJvdGF0ZSgzMCkiPjxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjAzKSI+PC9yZWN0PjwvcGF0dGVybj48L2RlZnM+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0idXJsKCNwYXR0ZXJuKSI+PC9yZWN0Pjwvc3ZnPg==')]"></div>
 
           <div className="container px-4 md:px-6 text-center mx-auto relative z-10">
-            {/* <div className="inline-block mb-6">
-              <Badge variant="secondary" className="bg-white/20 text-white border-white/30 backdrop-blur-sm">
-                Sentiment Analysis
-              </Badge>
-            </div> */}
-
             <div className="max-w-4xl mx-auto backdrop-blur-sm p-6 rounded-xl bg-white/10">
               <h1 className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl text-white mb-4 drop-shadow-md">
                 Sentimen Informasi BPJS Indonesia
@@ -307,15 +270,15 @@ export default function Dashboard() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 pt-8 justify-center">
-              <Button className="text-lg py-2 px-4 bg-[#FFFBDE] text-[#096B68] hover:bg-white/90 shadow-lg">
+              {/* <Button className="text-lg py-2 px-4 bg-[#FFFBDE] text-[#096B68] hover:bg-white/90 shadow-lg">
                 Explore Data
-              </Button>
-              <Button
+              </Button> */}
+              {/* <Button
                 variant="outline"
                 className="text-lg py-2 px-4 text-white border-white hover:bg-[#096B68] backdrop-blur-sm"
               >
                 Documentation
-              </Button>
+              </Button> */}
             </div>
           </div>
         </section>
@@ -564,7 +527,7 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
 
-                {/* Subtopics (Pie Chart with Percentage) */}
+                {/* Subtopics (Pie Chart with Enhanced Tooltip) */}
                 <Card className="transition-all hover:shadow-md border-[#9ACBD0]/30">
                   <CardHeader>
                     <CardTitle>Topic Distribution</CardTitle>
@@ -591,10 +554,28 @@ export default function Dashboard() {
                               ))}
                             </Pie>
                             <Tooltip
-                              formatter={(value, name) => [
-                                `${value} (${((Number(value) / subtopicTotal) * 100).toFixed(1)}%)`,
-                                name,
-                              ]}
+                              content={({ active, payload }) => {
+                                if (active && payload && payload.length) {
+                                  const data = payload[0].payload
+                                  return (
+                                    <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">
+                                      <p className="font-semibold text-gray-900">{data.name}</p>
+                                      <p className="text-sm text-gray-700">
+                                        <span className="text-[#2973B2] font-medium">{data.value}</span> tweets (
+                                        {((data.value / subtopicTotal) * 100).toFixed(1)}%)
+                                      </p>
+                                      {data.sentiments && (
+                                        <div className="text-sm text-gray-700 mt-1">
+                                          <p>Positive: {data.sentiments.positive}</p>
+                                          <p>Negative: {data.sentiments.negative}</p>
+                                          <p>Neutral: {data.sentiments.neutral}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                }
+                                return null
+                              }}
                             />
                             <Legend
                               layout="horizontal"
@@ -609,7 +590,6 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
 
-                {/* Tweets per Province (Bar Chart) */}
                 {/* Tweets per Province (Enhanced Bar Chart) */}
                 <Card className="col-span-2 transition-all hover:shadow-md border-[#9ACBD0]/30 mx-auto w-full max-w-5xl">
                   <CardHeader className="pb-2 text-center">
@@ -624,24 +604,21 @@ export default function Dashboard() {
                       {provinceData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart
-                            data={[...provinceData].sort((a, b) => b.count - a.count).slice(0, 15)} // Show top 15 provinces for better readability
+                            data={[...provinceData].sort((a, b) => b.count - a.count).slice(0, 15)}
                             layout="vertical"
                             margin={{
                               top: 20,
                               right: 30,
                               left: 160,
-                              bottom: 40, // Increased bottom margin for scroll notice
+                              bottom: 40,
                             }}
                           >
-                            {/* Custom Grid Lines */}
                             <CartesianGrid
                               stroke="#e2e8f0"
                               strokeDasharray="3 3"
                               horizontal={true}
                               strokeOpacity={0.5}
                             />
-
-                            {/* X Axis with improved styling */}
                             <XAxis
                               type="number"
                               tick={{
@@ -660,8 +637,6 @@ export default function Dashboard() {
                                 fontSize: 12,
                               }}
                             />
-
-                            {/* Y Axis with better formatting */}
                             <YAxis
                               dataKey="location"
                               type="category"
@@ -677,8 +652,6 @@ export default function Dashboard() {
                               tickMargin={10}
                               tickFormatter={(value) => (value.length > 18 ? `${value.substring(0, 16)}...` : value)}
                             />
-
-                            {/* Enhanced Tooltip */}
                             <Tooltip
                               content={({ active, payload, label }) => {
                                 if (active && payload && payload.length) {
@@ -702,8 +675,6 @@ export default function Dashboard() {
                                 strokeWidth: 1,
                               }}
                             />
-
-                            {/* Gradient-filled Bars with animation */}
                             <Bar
                               dataKey="count"
                               radius={[0, 4, 4, 0]}
@@ -720,8 +691,6 @@ export default function Dashboard() {
                                 />
                               ))}
                             </Bar>
-
-                            {/* Gradient definitions */}
                             <defs>
                               {provinceData.map((entry, index) => (
                                 <linearGradient
@@ -737,8 +706,6 @@ export default function Dashboard() {
                                 </linearGradient>
                               ))}
                             </defs>
-
-                            {/* Custom Legend */}
                             <Legend
                               verticalAlign="top"
                               height={40}

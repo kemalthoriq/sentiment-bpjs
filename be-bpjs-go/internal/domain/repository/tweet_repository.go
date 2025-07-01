@@ -142,3 +142,27 @@ func CountSentimentsForBPJSUsers() (map[string]int, error) {
 	}
 	return result, nil
 }
+
+func CountSentimentsPerSubtopic(subtopic string) (map[string]int, error) {
+	rows, err := config.DB.Query(`
+        SELECT sentiment, COUNT(*)
+        FROM tweets
+        WHERE subtopic = $1
+        GROUP BY sentiment
+    `, subtopic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]int)
+	for rows.Next() {
+		var sentiment string
+		var count int
+		if err := rows.Scan(&sentiment, &count); err != nil {
+			return nil, err
+		}
+		result[sentiment] = count
+	}
+	return result, nil
+}
